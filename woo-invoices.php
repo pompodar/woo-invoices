@@ -10,16 +10,7 @@ function wi_custom_new_order_email( $order_id ) {
 
         $order = new WC_Order( $order_id );
 
-        $billing_address = $order->get_billing_address_1(); // for printing or displaying on web page
-        $shipping_address = $order->get_shipping_address_1();
-        $email = $order->get_billing_email();
-        $name = $order->get_billing_first_name()  .' ' . $order->get_billing_last_name();
-        $billing_phone = $order->get_billing_phone();
         $date = date('M d, Y');
-        $kmo_prod_info = false;
-        
-
-        $order_items = $order->get_items();
 
         foreach ( $order_items as $item_id => $item ) {
             // Get the product ID
@@ -28,6 +19,7 @@ function wi_custom_new_order_email( $order_id ) {
                 break;
             }
         }
+
 
         $data   = '';
         $data   .= "<table border='0' cellpadding='0' cellspacing='0' width='600'><tbody><tr>
@@ -81,7 +73,9 @@ function wi_custom_new_order_email( $order_id ) {
         }
 
         if ($kmo_prod_info) {
-            $data .=  "<span>KMO details<span/>";
+            $data .=  "<h2>You bought a KMO product so 
+            the sum except Vat must be paid by the goverment.
+            </h2>";
         }
         $data .=  "<span>
         <h2 style='color:#557da1;display:block;font-family:&quot;Helvetica Neue&quot;,Helvetica,Roboto,Arial,sans-serif;font-size:18px;font-weight:bold;line-height:130%;margin:16px 0 8px;text-align:left'>
@@ -159,58 +153,121 @@ function wi_custom_new_order_email( $order_id ) {
     
 // Function to generate the invoice
 function generate_invoice($order) {
-    // Get order data
-    $order_id = $order->get_id();
-    $order_date = $order->get_date_created()->format('Y-m-d H:i:s');
-    $billing_address = $order->get_formatted_billing_address();
-    $order_items = $order->get_items();
+    $kmo_prod_info = false;
 
-    // Start building the HTML invoice
-    $html_invoice = '<html><head><style>';
-    // Add your CSS styles here to format the invoice as desired.
-    $html_invoice .= '
-        /* Your CSS styles for the invoice */
-        body {
-            font-family: Arial, sans-serif;
-        }
-        /* Add more styles as needed */
-    ';
-    $html_invoice .= '</style></head><body>';
-
-    // Invoice header
-    $html_invoice .= '<h1>Invoice for Order #' . $order_id . '</h1>';
-    $html_invoice .= '<p>Order Date: ' . $order_date . '</p>';
-    $html_invoice .= '<h2>Billing Address</h2>';
-    $html_invoice .= '<address>' . $billing_address . '</address>';
-
-    // Invoice table
-    $html_invoice .= '<h2>Order Items</h2>';
-    $html_invoice .= '<table border="1">';
-    $html_invoice .= '<tr><th>Product</th><th>Quantity</th><th>Price</th><th>Total</th></tr>';
-
-    foreach ($order_items as $item_id => $item) {
-        $product = $item->get_product();
-        $product_name = $product->get_name();
-        $quantity = $item->get_quantity();
-        $price = $item->get_subtotal();
-        $total = $item->get_total();
-
-        $html_invoice .= '<tr>';
-        $html_invoice .= '<td>' . $product_name . '</td>';
-        $html_invoice .= '<td>' . $quantity . '</td>';
-        $html_invoice .= '<td>' . wc_price($price) . '</td>';
-        $html_invoice .= '<td>' . wc_price($total) . '</td>';
-        $html_invoice .= '</tr>';
+    $html_content = '<style>
+    .woo-invoice-reports-header{
+        display: flex;
+        justify-content: space-between;
+    } 
+    table {
+        border-collapse: collapse;
+        width: 100%;
     }
 
-    $html_invoice .= '</table>';
+    th, td {
+        border: 1px solid #dddddd;
+        text-align: left;
+        padding: 8px;
+    }
 
-    // Invoice total
-    $html_invoice .= '<h2>Total Amount: ' . wc_price($order->get_total()) . '</h2>';
+    tr:nth-child(even) {
+        background-color: #f2f2f2;
+    }
+    </style>
+    ';
 
-    // Close the HTML document
-    $html_invoice .= '</body></html>';
+    $html_content .=  '
+    <header class="woo-invoice-reports-header">
+        <img src="https://next-rehabandperformance.be/wp-content/themes/next-academy/images/NextAcademy_Logo_2020_RGB2.svg?v=1695642847488" width="231" alt="" class="width-100">
+        <div id="company">
+            <p class="name">Next Rehab and Performance</p>
+            <p class="details">Fraikinstraat 36, bus 102<br>
+            2200 Herentals</p>
+        </div>
+    </header>
+    ';
 
+    $html_content .= '<h3>Invoices for the selected period: ' . $start_date . ' - ' . $end_date . '</h3>';
+
+    // Start the table
+    $html_content .= '<table style="font-size: 12px">';
+    $html_content .= '<thead style="background: grey">';
+    $html_content .= '<tr>';
+    $html_content .= '<th>Invoice Number</th>';
+    $html_content .= '<th>Issue Date</th>';
+    $html_content .= '<th>Sale Date</th>';
+    $html_content .= '<th>Due Date</th>';
+    $html_content .= '<th>Customer Name</th>';
+    $html_content .= '<th>Gross Value</th>';
+    $html_content .= '<th>Net Value</th>';
+    $html_content .= '<th>Tax BTW 21 (VAT 21)% Value</th>';
+    $html_content .= '<th>Tax 0% Value</th>';
+    $html_content .= '<th>Tax Value</th>';
+    $html_content .= '</tr>';
+    $html_content .= '</thead>';
+    $html_content .= '<tbody>';
+
+
+    $currentYear = date('Y');
+
+    $invoice_number = $currentYear .'/'. $order->get_data()['id'];
+    $order_date = date("Y-m-d", strtotime(get_post_meta($order->get_id(), '_paid_date', true)));
+
+    if (!empty($order->get_data()['billing']['company'])) {
+        $name = $order->get_data()['billing']['company']; 
+    } else {
+        $name = $order->get_data()['billing']['first_name'] . ' ' . $order->get_data()['billing']['last_name'];
+    }
+
+    $email = $order->get_data()['billing']['email'];
+    $discount = $order->get_data()['discount_total']; 
+    $order_total = get_post_meta($order->get_id(), '_order_total', true);
+
+    $net_value = number_format(($order_total - ($order_total * 21/100)), 2); 
+    $vat_value = number_format(($order_total * 21/100), 2);
+
+    $tax_percent = '';
+    $tax_amount =  number_format($vat_value, 2);
+
+    $order_items = $order->get_items();
+
+    foreach ( $order_items as $item_id => $item ) {
+        // Get the product ID
+        if ($item["Ik wil gebruiken maken van KMO-portefeuille"] == 'Ja') {
+            $kmo_prod_info = true;
+            break;
+        }
+    }
+
+    // Output table rows for each order
+    $html_content .= '<tr>';
+    $html_content .= '<td>' . $invoice_number . '</td>';
+    $html_content .= '<td>' . $order_date . '</td>';
+    $html_content .= '<td>' . $order_date . '</td>';
+    $html_content .= '<td>' . $order_date . '</td>';
+    $html_content .= '<td>' . $name . '</td>';
+    $html_content .= '<td>' . $order_total . '</td>';
+    $html_content .= '<td>' . $net_value . '</td>';
+    $html_content .= '<td>' . $vat_value . '</td>';
+    $html_content .= '<td>' . $tax_percent . '</td>';
+    $html_content .= '<td>' . $tax_amount . '</td>';
+    $html_content .= '</tr>';
+
+
+    // Close the table
+    $html_content .= '</tbody>';
+    $html_content .= '</table>';
+    $html_content .= '<br/>';
+    $html_content .= '<br/>';
+    $html_content .= '<br/>';
+    
+    if ($kmo_prod_info) {
+        $html_content .= '<h2>You bought a KMO product so 
+        the sum except Vat must be paid by the goverment.
+        </h2>';
+    }
+        
     // Create a new invoice post
     $invoice_post = array(
         'post_title' => 'Invoice for Order #' . $order_id,
@@ -232,12 +289,7 @@ function generate_invoice($order) {
     update_post_meta($invoice_id, '_order_items', $order_items);
     update_post_meta($invoice_id, '_order_status', $order_status);
 
-    // Set the post content to the invoice HTML
-    if ($invoice_id) {
-        update_post_meta($invoice_id, '_invoice_html', $html_invoice);
-    }
-
-    return $html_invoice;
+    return $html_content;
 }
 
 // Register a custom post type for invoices
@@ -283,6 +335,7 @@ function display_invoice_custom_fields($post) {
     $order_number = get_post_meta($post->ID, '_order_number', true);
     $order_date = get_post_meta($post->ID, '_order_date', true);
     $name = $order->get_data()['billing']['first_name'] . ' ' . $order->get_data()['billing']['last_name'];
+    $company = $order->get_data()['billing']['company'];
     $email = $order->get_data()['billing']['email'];
     $billing_phone = $order->get_data()['billing']['phone'];
     $riziv_number = get_post_meta($order->get_id(), '_billing_riziv_nummer', true);
@@ -292,22 +345,10 @@ function display_invoice_custom_fields($post) {
     $order_total = get_post_meta($order->get_id(), '_order_total', true);
     $order_status = $order->get_data()['status'];
 
-    var_dump($order->get_data());
-
-
-// Check if the order object exists.
-if ($order) {
-    // Get all metadata for the order.
-    $order_metadata = get_post_meta($order->get_id());
-    // Loop through and display or work with the metadata.
-    foreach ($order_metadata as $key => $value) {
-        echo "Meta Key: " . esc_html($key) . "<br>";
-        echo "Meta Value: " . esc_html($value[0]) . "<br>";
-    }
-}
     // Output HTML for custom fields
     echo '<p><strong>Order Date:</strong> ' . esc_html($order_date) . '</p>';
     echo '<p><strong>Customer:</strong> ' . esc_html($name) . '</p>';
+    echo '<p><strong>Company:</strong> ' . esc_html($company) . '</p>';
     echo '<p><strong>Email:</strong> ' . esc_html($email) . '</p>';
     echo '<p><strong>Phone:</strong> ' . esc_html($billing_phone) . '</p>';
     if ($riziv_number) {
@@ -326,12 +367,14 @@ if ($order) {
             echo '<li>Quantity: ' . esc_html($item['quantity']) . '</li>';
             echo '<li>Total: ' . esc_html($item['total']) . '</li>';
             echo '<li>KMO: ' . esc_html($item["Ik wil gebruiken maken van KMO-portefeuille"]) . '</li>';
+            echo '<hr/>';
+
         }
         echo '</ul>';
     }
 
     echo '<p><strong>Discount Total:</strong> ' . esc_html($discount) . '</p>';
-    echo '<p><strong>Total:</strong> ' . esc_html($total) . '</p>';
+    echo '<p><strong>Total:</strong> ' . esc_html($order_total) . '</p>';
     echo '<p><strong>Order Status:</strong> ' . esc_html($order_status) . '</p>';
 }
 
@@ -476,7 +519,13 @@ function display_orders_for_period($start_date, $end_date) {
 
             $invoice_number = $currentYear .'/'. $order->get_data()['id'];
             $order_date = date("Y-m-d", strtotime(get_post_meta($order->get_id(), '_paid_date', true)));
-            $name = $order->get_data()['billing']['first_name'] . ' ' . $order->get_data()['billing']['last_name'];
+            
+            if (!empty($order->get_data()['billing']['company'])) {
+                $name = $order->get_data()['billing']['company']; 
+            } else {
+                $name = $order->get_data()['billing']['first_name'] . ' ' . $order->get_data()['billing']['last_name'];
+            }
+            
             $email = $order->get_data()['billing']['email'];
             $discount = $order->get_data()['discount_total']; 
             $order_total = get_post_meta($order->get_id(), '_order_total', true);
