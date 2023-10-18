@@ -4,13 +4,27 @@ Plugin Name: Woo Invoices
 Description: Custom Woocommerce invoices.
 Version: 1.0
 */
+// Require the TCPDF library.
+require_once(WP_PLUGIN_DIR . '/woo-invoices/vendor/tecnickcom/tcpdf/tcpdf.php');
+
 
 add_action('woocommerce_thankyou', 'wi_custom_new_order_email');
+
 function wi_custom_new_order_email( $order_id ) {
 
         $order = new WC_Order( $order_id );
 
+        $kmo_prod_info = false;
+
         $date = date('M d, Y');
+
+        if (!empty($order->get_data()['billing']['company'])) {
+            $name = $order->get_data()['billing']['company']; 
+        } else {
+            $name = $order->get_data()['billing']['first_name'] . ' ' . $order->get_data()['billing']['last_name'];
+        }
+        $email = $order->get_data()['billing']['email'];
+        $order_items = $order->get_items();
 
         foreach ( $order_items as $item_id => $item ) {
             // Get the product ID
@@ -87,20 +101,12 @@ function wi_custom_new_order_email( $order_id ) {
         $email
         </a>
         </p>
-        <p style='margin:0 0 16px'>
-        <strong>Tel:</strong>
-        $billing_phone
-        </p>
         <table cellspacing='0' cellpadding='0' style='width:100%;vertical-align:top' border='0'>
         <tbody>
         <tr>
         <td valign='top' width='50%' style='padding:12px'>
-        <h3 style='color:#557da1;display:block;font-family:&quot;Helvetica Neue&quot;,Helvetica,Roboto,Arial,sans-serif;font-size:16px;font-weight:bold;line-height:130%;margin:16px 0 8px;text-align:left'>Billing address</h3>
-        <p style='margin:0 0 16px'> $billing_address </p>
         </td>
         <td valign='top' width='50%' style='padding:12px'>
-        <h3 style='color:#557da1;display:block;font-family:&quot;Helvetica Neue&quot;,Helvetica,Roboto,Arial,sans-serif;font-size:16px;font-weight:bold;line-height:130%;margin:16px 0 8px;text-align:left'>Shipping address</h3>
-        <p style='margin:0 0 16px'> $shipping_address </p>
         </td>
         </tr>
         </tbody>
@@ -117,7 +123,7 @@ function wi_custom_new_order_email( $order_id ) {
         </table>";
 
         // Generate the invoice HTML
-    $invoice_html = generate_invoice($order);
+    $invoice_html = generate_invoice($order, $order_id);
 
     // Define the plugin directory where you want to temporarily store the invoice
     $plugin_dir = WP_PLUGIN_DIR . '/woo-invoices/invoices/';
@@ -136,11 +142,14 @@ function wi_custom_new_order_email( $order_id ) {
     // Save the invoice HTML to the temporary file
     file_put_contents($temp_invoice_file, $invoice_html);
 
+     // Generate the PDF invoice
+    $pdf_filename = generate_pdf_invoice($order_id, $invoice_html);
+
     // Get the email headers
     $mailer = WC()->mailer();
 
     // Attach the temporary invoice file to the email
-    $attachments = array($temp_invoice_file);
+    $attachments = array($pdf_filename);
 
     $subject = 'New Customer Order';
     
@@ -150,9 +159,51 @@ function wi_custom_new_order_email( $order_id ) {
     // Delete the temporary invoice file
     unlink($temp_invoice_file);
 }
+
+// Function to generate the PDF invoice
+function generate_pdf_invoice($order_id, $html_content) {
+    // Create a new PDF instance
+    $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+
+    // Set PDF document information
+    $pdf->SetCreator('Your Plugin Name');
+    $pdf->SetAuthor('Your Name');
+    $pdf->SetTitle('Invoice for Order #' . $order_id);
+    $pdf->SetSubject('Invoice');
+    $pdf->SetKeywords('Invoice, Order');
+
+    // Set font
+    $pdf->SetFont('helvetica', '', 12);
+
+    // Add a page
+    $pdf->AddPage();
+
+    // Output the invoice content to the PDF
+    $pdf->writeHTML($html_content, true, false, true, false, '');
+
+    // Define the plugin directory where you want to temporarily store the PDF
+    $plugin_dir = WP_PLUGIN_DIR . '/woo-invoices/invoices/';
+
+    // Create the directory if it doesn't exist
+    if (!file_exists($plugin_dir)) {
+        mkdir($plugin_dir, 0755, true);
+    }
+
+    // Generate a unique filename for the PDF invoice
+    $pdf_filename = 'invoice_' . $order_id . '.pdf';
+
+    // Define the full path to the PDF invoice file
+    $pdf_file_path = $plugin_dir . $pdf_filename;
+
+    // Output the PDF to the file
+    $pdf->Output($pdf_file_path, 'F');
+
+    // Return the file path if needed
+    return $pdf_file_path;
+}
     
 // Function to generate the invoice
-function generate_invoice($order) {
+function generate_invoice($order, $order_id) {
     $kmo_prod_info = false;
 
     $html_content = '<style>
@@ -187,8 +238,6 @@ function generate_invoice($order) {
         </div>
     </header>
     ';
-
-    $html_content .= '<h3>Invoices for the selected period: ' . $start_date . ' - ' . $end_date . '</h3>';
 
     // Start the table
     $html_content .= '<table style="font-size: 12px">';
@@ -279,15 +328,7 @@ function generate_invoice($order) {
 
     // Save specific order data as custom fields
     update_post_meta($invoice_id, '_order_id', $order_id);
-    update_post_meta($invoice_id, '_invoice_number', 'order_id_not_working');
-    update_post_meta($invoice_id, '_invoice_id', $invoice_id);
-    update_post_meta($invoice_id, '_order_date', $order_date);
-    update_post_meta($invoice_id, '_billing_address', $billing_address);
-    update_post_meta($invoice_id, '_shipping_address', $shipping_address);
-    update_post_meta($invoice_id, '_email', $email);
-    update_post_meta($invoice_id, '_billing_phone', $billing_phone);
-    update_post_meta($invoice_id, '_order_items', $order_items);
-    update_post_meta($invoice_id, '_order_status', $order_status);
+
 
     return $html_content;
 }
@@ -377,13 +418,6 @@ function display_invoice_custom_fields($post) {
     echo '<p><strong>Total:</strong> ' . esc_html($order_total) . '</p>';
     echo '<p><strong>Order Status:</strong> ' . esc_html($order_status) . '</p>';
 }
-
-//Add custom field to the order when it's created.
-add_action( 'woocommerce_checkout_create_order', 'add_custom_field_on_placed_order', 10, 2 );
-function add_custom_field_on_placed_order( $order, $data ){
-    $order->update_meta_data( '_custom_field_name', 'ordercreated' );
-}
-add_action('woocommerce_checkout_create_order', 'add_custom_field_to_order');
 
 // Create an admin menu item
 function wi_report_menu() {
